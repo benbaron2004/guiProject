@@ -4,5 +4,5 @@ matplotlib==3.10.1
 cartopy==0.24.1
 requests==2.32.3
 tkintermapview==1.29
-ctk-date-picker==1.0.0
 urllib3==2.4.0
+

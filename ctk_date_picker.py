@@ -21,7 +21,7 @@ class CTkDatePicker(ctk.CTkFrame):
         self.allow_change_month = True
         self.add_months = 0
         self.subtract_months = 0
-        self.max_date = datetime.now().date()  # ברירת מחדל: היום
+        self.max_date = datetime.now().date()
 
     def set_date_format(self, date_format):
         self.date_format = date_format

@@ -12,6 +12,32 @@ import matplotlib
 from matplotlib.cm import ScalarMappable
 from ctk_date_picker import CTkDatePicker
 from tkintermapview import TkinterMapView
+from pathlib import Path
+
+
+def isNetrcExists():
+    netrcPath = Path.home() / ".netrc"
+
+    if not netrcPath.exists():
+        username = "benbaron2004"
+        password = "Jonbeneden1."
+        content = f"""machine urs.earthdata.nasa.gov
+login {username}
+password {password}
+"""
+
+        try:
+            with open(netrcPath, "w") as f:
+                f.write(content)
+            os.chmod(netrcPath, 0o600)
+            print(f".netrc file created at {netrcPath}")
+        except Exception as e:
+            print(f"failed to create .netrc: {e}")
+    else:
+        print(".netrc file already exists")
+
+
+isNetrcExists()
 
 
 class Gui:
@@ -20,13 +46,15 @@ class Gui:
         self.root = ctk.CTk()
         self.root.geometry(f"{self.root.winfo_screenwidth()}x{self.root.winfo_screenheight()}+0+0")
         self.root.title("Ionosphere maps")
-        self.root.update()
 
         self.tecCanvas, self.kpIndexCanvas, self.klobucharCanvas, self.deltaCanvas = None, None, None, None
         self.animationRun, self.animationId = False, None
         self.day, self.year = None, None
         self.mapChoice = ctk.StringVar(value="IGS map")
         self.mapManuAdded = False
+
+        self.downloadDir = os.path.join(os.getcwd(), "downloads")
+        os.makedirs(self.downloadDir, exist_ok=True)
 
         self.buildWindow()
         self.root.mainloop()
@@ -68,9 +96,6 @@ class Gui:
         self.errorLabel = ctk.CTkLabel(self.buttonsFrame, text="", text_color="red", wraplength=180)
         self.errorLabel.grid(row=7, column=0, pady=10)
 
-        # self.buttonToExcel = ctk.CTkButton(self.buttonsFrame, text="save to excel")
-        # self.buttonToExcel.grid(row=8, column=0, pady=10)
-
         self.tabView = ctk.CTkTabview(self.root)
         self.tabView.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
 
@@ -91,9 +116,7 @@ class Gui:
         self.deltaFrame = ctk.CTkFrame(self.deltaTab, fg_color="gray")
         self.deltaFrame.pack(expand=True, fill="both", padx=10, pady=10)
 
-        self.maplabel = ctk.CTkLabel(
-            self.root, text="right click on map to choose location", text_color="white", anchor="w"
-        )
+        self.maplabel = ctk.CTkLabel(self.root, text="right click to choose location", text_color="white", anchor="w")
         self.maplabel.grid(row=1, column=1, sticky="w", padx=10, pady=(10, 0))
 
         self.mapWidget = TkinterMapView(self.root, width=400, height=200)
@@ -118,8 +141,8 @@ class Gui:
     def showTec(self):
         fileName = self.calcFileName()
         url = f"https://cddis.nasa.gov/archive/gnss/products/ionex/{self.year}/{self.day}/{fileName + ".gz"}"
-        self.downloadAndExtract(url=url, saveFileName=fileName)
-        self.tecMaps = self.getTecData(fileName)
+        path = self.downloadAndExtract(url=url, saveFileName=fileName)
+        self.tecMaps = self.getTecData(path)
 
         if self.tecCanvas is not None:
             self.tecCanvas.get_tk_widget().destroy()
@@ -142,14 +165,13 @@ class Gui:
         return fileName
 
     def downloadAndExtract(self, url, saveFileName):
-        zipPath = os.path.join(os.getcwd(), saveFileName + ".gz")
-        savePath = os.path.join(os.getcwd(), saveFileName)
+        zipPath = os.path.join(self.downloadDir, saveFileName + ".gz")
+        savePath = os.path.join(self.downloadDir, saveFileName)
 
         try:
             self.errorLabel.configure(text="")
             if os.path.exists(savePath):
                 return savePath
-
             with requests.Session() as session:
                 response = session.get(url, stream=True, timeout=5)
                 if response.status_code != 200:
@@ -166,11 +188,11 @@ class Gui:
             print(f"Error downloading: {e}")
             return None
 
-    def getTecData(self, fileName):
+    def getTecData(self, fileNamePath):
         mapsData = []
         currentRow, currentMap = [], []
 
-        with open(fileName, "r") as file:
+        with open(fileNamePath, "r") as file:
             inBlock = False
             for line in file:
                 if "START OF TEC MAP" in line:
@@ -205,7 +227,6 @@ class Gui:
                 alpha = j / 8
                 interpolatedMap = (1 - alpha) * mapsData[i] + alpha * mapsData[i + 1]
                 allMaps.append(interpolatedMap)
-        # allMaps.append(mapsData[-1])
         return allMaps
 
     # animations
@@ -339,10 +360,10 @@ class Gui:
             url = f"{baseurl}/{file}"
             saveFileName = file[:-3]
 
-            result = self.downloadAndExtract(url=url, saveFileName=saveFileName)
-            if result:
+            path = self.downloadAndExtract(url=url, saveFileName=saveFileName)
+            if path:
                 break
-        alpha, beta = self.readKlobucharData(saveFileName)
+        alpha, beta = self.readKlobucharData(path)
         times = self.gpsSeconesByDate(self.selectedDate)
 
         self.klobucharMaps = []
@@ -354,7 +375,7 @@ class Gui:
 
     def calcKlobucharFileNames(self):
         fileStartNames = []
-        with open("/Users/benbaron/Desktop/ionosphereMap/stationsName.txt", "r", encoding="utf-8") as r:
+        with open("stationsName.txt", "r", encoding="utf-8") as r:
             fileStartNames = [line.strip() for line in r]
 
         files = []
@@ -363,9 +384,9 @@ class Gui:
             files.append(filename)
         return files
 
-    def readKlobucharData(self, saveFileName):
+    def readKlobucharData(self, fileNamePath):
         alpha, beta = [], []
-        with open(saveFileName, "r") as file:
+        with open(fileNamePath, "r") as file:
             for line in file:
                 values = line.split()
                 if "GPSA" in line:
@@ -444,7 +465,7 @@ class Gui:
         lat, lon = coords
         self.mapWidget.delete_all_marker()
         self.mapWidget.set_marker(lat, lon, text="my choice")
-        extent = [lon - 35, lon + 35, lat - 15, lat + 15]
+        extent = [lon - 10, lon + 10, lat - 5, lat + 5]
 
         self.tecCanvas.get_tk_widget().destroy()
         title = f"{self.mapChoice.get()} - {self.selectedDate}"
